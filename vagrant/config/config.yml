@@ -1,0 +1,21 @@
+vagrant:
+  vm:
+    box: puphpet/ubuntu1404-x64
+    box_url: puphpet/ubuntu1404-x64
+    hostname: 'my.host.local'
+    memory: '2048'
+    cpus: '2'
+    network: 10.10.10.10
+  ssh:
+    user: vagrant
+    passwd: vagrant
+  mysql:
+    root:
+      passwd: vagrant
+    instance:
+      db: mydb
+      user: myuser
+      passwd: mypassword
+  apache:
+    home: /var/customers/webs/dhirtzbruch/https/my.host.local/
+    log: /var/customers/logs/dhirtzbruch/

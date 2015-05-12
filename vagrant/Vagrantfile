@@ -1,0 +1,93 @@
+require 'yaml'
+
+dir = File.dirname(File.expand_path(__FILE__))
+configValues = YAML.load_file("#{dir}/config/config.yml")
+
+data         = configValues['vagrant']
+
+Vagrant.require_version '>= 1.6.0'
+
+Vagrant.configure(2) do |config|
+
+  config.vm.box     = "#{data['vm']['box']}"
+  config.vm.box_url = "#{data['vm']['box_url']}"
+  config.vm.hostname = "vagrant.local"
+  config.vm.network "private_network", ip: "#{data['vm']['network']}"
+  config.vm.synced_folder "./data", "/var/vagrant_data"
+
+  config.ssh.username = "#{data['ssh']['user']}"
+  config.ssh.password = "#{data['ssh']['passwd']}"
+  config.ssh.forward_agent = true
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.customize ['modifyvm', :id, '--memory', "#{data['vm']['memory']}"]
+    vb.customize ['modifyvm', :id, '--cpus', "#{data['vm']['cpus']}"]
+    vb.customize ['modifyvm', :id, '--name', "#{data['vm']['hostname']}"]
+    vb.customize ['modifyvm', :id, "--natdnshostresolver1", "on"]
+  end
+
+  config.vm.provision "shell", inline: <<-SHELL
+
+    apt-get update
+    apt-get -y install mc apache2
+    apt-get -y install php5 libapache2-mod-php5 php5-xsl php5-mysql php5-curl
+    apt-get -y install graphviz php5-intl php5-xdebug
+    sudo a2enmod headers rewrite authz_host authz_user authz_core authz_groupfile
+    sudo service apache2 restart
+
+    echo mysql-server-5.1 mysql-server/root_password password "#{data['mysql']['root']['passwd']}" | debconf-set-selections
+    echo mysql-server-5.1 mysql-server/root_password_again password "#{data['mysql']['root']['passwd']}" | debconf-set-selections
+    apt-get install -y mysql-server
+
+    echo "creating mysql database"
+    mysql -u root -p#{data['mysql']['root']['passwd']} -e "CREATE DATABASE IF NOT EXISTS #{data['mysql']['instance']['db']};";
+    echo "creating mysql user"
+    mysql -u root -p#{data['mysql']['root']['passwd']} -e "GRANT ALL ON #{data['mysql']['instance']['db']}.* TO '#{data['mysql']['instance']['user']}'@'localhost' IDENTIFIED BY '#{data['mysql']['instance']['passwd']}';";
+    echo "flush privileges"
+    mysql -u root -p#{data['mysql']['root']['passwd']} -e "flush privileges;";
+
+    apt-get -y install g++ subversion git make vim lynx wget curl
+
+    mkdir -p #{data['apache']['home']}
+    echo -e "<?php\rphpinfo();" > #{data['apache']['home']}index.php
+    chown vagrant:vagrant #{data['apache']['home']} -R
+
+    mkdir -p #{data['apache']['log']}
+    chown www-data:www-data #{data['apache']['log']} -R
+
+    cp /var/vagrant_data/custom-vhost.conf /etc/apache2/sites-available/custom-vhost.conf
+    cp /var/vagrant_data/xdebug.ini /etc/php5/mods-available/xdebug.ini
+
+    if [[ ! -h "/etc/apache2/sites-enabled/010-custom-vhost.conf" ]]
+    then
+        ln -s /etc/apache2/sites-available/custom-vhost.conf /etc/apache2/sites-enabled/010-custom-vhost.conf
+    else
+        echo "site already enabled"
+    fi
+    sudo service apache2 restart
+
+    echo installing Composer
+    curl -sS https://getcomposer.org/installer | php
+    mv composer.phar #{data['apache']['home']}/
+
+    echo installing NodeJS
+    wget http://nodejs.org/dist/v0.12.2/node-v0.12.2.tar.gz
+    tar xvzf node-v0.12.2.tar.gz
+    cd node-v0.12.2
+    ./configure && make && sudo make install
+    cd ..
+
+    echo installing NPM
+    sudo curl https://www.npmjs.org/install.sh | sudo sh
+
+    echo installing Bower
+    sudo npm install -g bower
+
+    echo installing Grunt
+    npm install grunt -g
+    npm install -g grunt-cli
+    npm install -g grunt-contrib-jshint grunt-contrib-watch grunt-contrib-uglify grunt-contrib-clean grunt-contrib-copy grunt-contrib-concat grunt-contrib-cssmin grunt-contrib-less grunt-bower-concat
+
+  SHELL
+
+end
